@@ -1,102 +1,195 @@
+
+import os
+import tkinter as tk
+from tkinter import font as tkfont
 import time
 import pygetwindow as gw
 import pyautogui
-import keyboard
+import subprocess
+import win32gui
+import threading
 
-# ANSI escape codes for color formatting
-RED_COLOR = '\033[91m'
-GREEN_COLOR = '\033[92m'
-YELLOW_COLOR = '\033[93m'
-WHITE_COLOR = '\033[97m'
-BLUE_COLOR = '\033[94m'
-RESET_COLOR = '\033[0m'
-
-# Messages for user
-TOGGLE_MESSAGE = f"{YELLOW_COLOR}Make sure the instances you want on anti-afk are minimized and not focused{RESET_COLOR}"
-TOGGLE_PROMPT = f"{YELLOW_COLOR}Press the toggle key again to toggle off, or press 'Home' to change the keybind.{RESET_COLOR}"
-KEYBIND_CHANGE_PROMPT = f"{YELLOW_COLOR}Would you like to change the keybind for toggling the script? (y/n): {RESET_COLOR}"
-MINIMIZE_PROMPT = f"{YELLOW_COLOR}Would you like to minimize all instances of 'Roblox' before toggling? (y/n): {RESET_COLOR}"
+# Define color tags for the text widget
+COLORS = {
+    "green": "#00FF00",
+    "yellow": "#FFFF00",
+    "red": "#FF0000",
+    "blue": "#0000FF",
+    "white": "#FFFFFF",
+    "black": "#000000",
+    "dark_bg": "#1E1E1E",
+    "light_text": "#E0E0E0"
+}
 
 toggle = False  # Initial toggle state
-toggle_key = 'f12'  # Default toggle key
+
+def append_to_log(message, color="light_text"):
+    log_window.config(state=tk.NORMAL)
+    log_window.insert(tk.END, message + "\n")
+    log_window.tag_add(color, "end-1c linestart", "end-1c lineend")
+    log_window.tag_configure(color, foreground=COLORS[color])
+    log_window.config(state=tk.DISABLED)
+    log_window.yview(tk.END)  # Scroll to the end
 
 def minimize_all_instances():
     try:
         roblox_windows = gw.getWindowsWithTitle("Roblox")
-        for window in roblox_windows:
-            window.minimize()
-        print(f"{GREEN_COLOR}All instances of 'Roblox' minimized.{RESET_COLOR}") if roblox_windows else \
-            print(f"{RED_COLOR}No instances of 'Roblox' found.{RESET_COLOR}")
+        if roblox_windows:
+            for window in roblox_windows:
+                window.minimize()
+            append_to_log("All instances of 'Roblox' minimized.", "green")
+        else:
+            append_to_log("No instances of 'Roblox' found.", "red")
     except Exception as e:
-        print(f"{RED_COLOR}Error while minimizing instances: {e}{RESET_COLOR}")
+        append_to_log(f"Error while minimizing instances: {e}", "red")
 
 def maximize_and_press_space(window):
     try:
+        append_to_log(f"Maximizing window: '{window.title}'", "light_text")
         window.maximize()
-        time.sleep(0.5)  # Wait for the window to maximize
+        time.sleep(0.2)  # Shorter wait for window to maximize
         window.activate()  # Ensure the window is activated before clicking
         screen_width, screen_height = pyautogui.size()  # Get the screen size
         pyautogui.click(button='left', x=screen_width // 2, y=screen_height // 2)  # Click at the center of the screen
-        time.sleep(0.2)  # Wait for a short time
+        time.sleep(0.1)  # Shorter wait after clicking
         window.minimize()
-        print(f"{GREEN_COLOR}Action performed on window '{window.title}' successfully.{RESET_COLOR}")
+        append_to_log(f"Action performed on window '{window.title}' successfully.", "green")
     except Exception as e:
-        print(f"{RED_COLOR}Error while processing window '{window.title}': {e}{RESET_COLOR}")
+        append_to_log(f"Error while processing window '{window.title}': {e}", "red")
+
+def is_window_on_top(hwnd):
+    try:
+        return win32gui.GetForegroundWindow() == hwnd
+    except Exception as e:
+        append_to_log(f"Error checking if window is on top: {e}", "red")
+        return False
 
 def toggle_action():
     global toggle
     toggle = not toggle  # Toggle the value of the 'toggle' variable
-    print(f"{GREEN_COLOR}Toggle is {toggle}{RESET_COLOR}")
-    print(TOGGLE_PROMPT)
+    status_text = "ON" if toggle else "OFF"
+    status_color = "green" if toggle else "red"
+    append_to_log(f"Toggle is {status_text}", status_color)
+    status_label.config(text=f"Current Status: {status_text}", fg=status_color)
 
 def detect_existing_instances():
     try:
         roblox_windows = gw.getWindowsWithTitle("Roblox")
+        append_to_log("-" * 40, "light_text")
+        if not roblox_windows:
+            append_to_log("No instances of 'Roblox' detected.", "red")
         for window in roblox_windows:
-            if window.title == "Roblox" and not window.isMinimized and window.isActive:
-                print(f"{WHITE_COLOR}-" * 40)
-                print(f"{BLUE_COLOR}Instance of Roblox detected but not minimized and active: '{window.title}'{RESET_COLOR}")
-                # Ignore the active window and do not minimize it
-            elif window.title == "Roblox" and not window.isMinimized and not window.isActive:
-                print(f"{WHITE_COLOR}-" * 40)
-                print(f"{BLUE_COLOR}Instance of Roblox detected but not minimized: '{window.title}'{RESET_COLOR}")
-                maximize_and_press_space(window)  # Maximize and press space instead of minimizing
-            elif window.title == "Roblox" and window.isMinimized and not window.isActive:
-                print(f"{WHITE_COLOR}-" * 40)
-                print(f"{GREEN_COLOR}Existing instance of Roblox detected: '{window.title}'{RESET_COLOR}")
-                maximize_and_press_space(window)
-                print(f"{GREEN_COLOR}New instance of Roblox detected.{RESET_COLOR}")
-                time.sleep(0.5)  # Add a short delay between processing each window
+            hwnd = window._hWnd  # Get the window handle
+            append_to_log(f"Checking window: '{window.title}'", "light_text")
+            
+            # Only proceed if the title is exactly "Roblox"
+            if window.title.strip() == "Roblox":
+                if window.isActive:
+                    append_to_log(f"Instance of Roblox is currently active: '{window.title}'", "blue")
+                elif is_window_on_top(hwnd):
+                    append_to_log(f"Instance of Roblox is on top: '{window.title}'", "blue")
+                elif not window.isMinimized and not window.isActive:
+                    append_to_log(f"Instance of Roblox is not minimized and not active: '{window.title}'", "blue")
+                    maximize_and_press_space(window)  # Maximize and press space
+                elif window.isMinimized and not window.isActive:
+                    append_to_log(f"Instance of Roblox is minimized and not active: '{window.title}'", "green")
+                    maximize_and_press_space(window)
+                else:
+                    append_to_log(f"Unhandled window state for '{window.title}'", "red")
+                
+                time.sleep(0.3)  # Shorter delay between processing each window
     except Exception as e:
-        print(f"{WHITE_COLOR}-" * 40)
-        print(f"{BLUE_COLOR}Error while detecting existing instances: {e}{RESET_COLOR}")
+        append_to_log("-" * 40, "light_text")
+        append_to_log(f"Error while detecting existing instances: {e}", "blue")
 
-def change_keybind():
-    global toggle_key
-    print(KEYBIND_CHANGE_PROMPT)
-    choice = input().lower()
-    if choice == "y":
-        print(f"{YELLOW_COLOR}Please press the desired key for toggle...{RESET_COLOR}")
-        toggle_key = keyboard.read_event(suppress=False).name
-        keyboard.add_hotkey(toggle_key, toggle_action)  # Bind the new key to toggle_action function
-        print(f"{GREEN_COLOR}Key '{toggle_key}' has been set as the toggle key.{RESET_COLOR}")
+def find_roblox_executable():
+    roblox_versions_path = os.path.expanduser("~\\AppData\\Local\\Roblox\\Versions")
+    try:
+        for folder in os.listdir(roblox_versions_path):
+            if folder.startswith("version-"):
+                roblox_executable_path = os.path.join(roblox_versions_path, folder, "RobloxPlayerBeta.exe")
+                if os.path.isfile(roblox_executable_path):
+                    return roblox_executable_path
+    except Exception as e:
+        append_to_log(f"Error finding Roblox executable: {e}", "red")
+    return None
+
+def launch_roblox_instance():
+    roblox_path = find_roblox_executable()
+    if roblox_path:
+        try:
+            # Launch Roblox in a new instance by using a different command line
+            subprocess.Popen([roblox_path, '--app', '--disable-roblox-beta'])
+            append_to_log("Launched new Roblox instance.", "green")
+        except Exception as e:
+            append_to_log(f"Error launching Roblox instance: {e}", "red")
     else:
-        print(f"{YELLOW_COLOR}Keybind change cancelled. Current keybind remains '{toggle_key}'.{RESET_COLOR}")
-        # Re-register the F12 keybind if the user chooses not to change it
-        keyboard.add_hotkey('f12', toggle_action)
+        append_to_log("Roblox executable not found.", "red")
+
+def on_toggle():
+    toggle_action()
+    toggle_button.config(text="Toggle OFF" if toggle else "Toggle ON")
+
+def on_launch():
+    launch_roblox_instance()
+
+def gui():
+    def start_detection():
+        global detection_thread
+        if detection_thread is None or not detection_thread.is_alive():
+            detection_thread = threading.Thread(target=run_detection_loop)
+            detection_thread.start()
+
+    def run_detection_loop():
+        while True:
+            if toggle:  # Only execute the loop if toggle is True
+                append_to_log("Checking for Roblox instances...", "yellow")
+                detect_existing_instances()  # Check for existing instances
+                time.sleep(5 * 60)  # Reduced to 5 minutes for faster detection
+            else:
+                time.sleep(1)  # If toggle is False, wait for 1 second before checking
+
+    root = tk.Tk()
+    root.title("Roblox Anti-AFK")
+
+    # Set window size and center it
+    root.geometry('600x400')
+    root.resizable(False, False)
+
+    # Define a custom font
+    custom_font = tkfont.Font(family="Helvetica", size=12)
+
+    # Create a frame for the content
+    frame = tk.Frame(root, padx=20, pady=20, bg=COLORS["dark_bg"])
+    frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+
+    # Add a title label
+    title_label = tk.Label(frame, text="Roblox Anti-AFK Control Panel", font=tkfont.Font(family="Helvetica", size=16, weight="bold"), bg=COLORS["dark_bg"], fg=COLORS["white"])
+    title_label.pack(pady=10)
+
+    # Add a status label
+    global status_label
+    status_label = tk.Label(frame, text="Current Status: OFF", font=custom_font, fg="red", bg=COLORS["dark_bg"])
+    status_label.pack(pady=10)
+
+    # Add the toggle button
+    global toggle_button
+    toggle_button = tk.Button(frame, text="Toggle ON", command=on_toggle, width=20, font=custom_font, bg="#4CAF50", fg="white", relief=tk.RAISED)
+    toggle_button.pack(pady=10)
+
+    # Add the launch button
+    launch_button = tk.Button(frame, text="Launch Roblox Instance", command=on_launch, width=20, font=custom_font, bg="#2196F3", fg="white", relief=tk.RAISED)
+    launch_button.pack(pady=10)
+
+    # Add the log text box
+    global log_window
+    log_window = tk.Text(frame, wrap=tk.WORD, height=10, width=70, font=custom_font, bg=COLORS["dark_bg"], fg=COLORS["light_text"])
+    log_window.pack(pady=10)
+
+    root.protocol("WM_DELETE_WINDOW", lambda: root.destroy() and exit())  # Ensure clean exit
+    start_detection()
+    root.mainloop()
 
 if __name__ == "__main__":
-    print(TOGGLE_MESSAGE)
-    change_keybind()  # Change keybind if user wants
-    print(f"{YELLOW_COLOR}The current toggle keybind is '{toggle_key}'.{RESET_COLOR}")
-    print(MINIMIZE_PROMPT)
-    minimize_choice = input()
-    if minimize_choice.lower() == "y":
-        minimize_all_instances()
-    
-    while True:
-        if toggle:  # Only execute the loop if toggle is True
-            detect_existing_instances()  # Check for existing instances
-            time.sleep(10 * 60)  # Wait for 10 minutes before checking again
-        else:
-            time.sleep(1)  # If toggle is False, wait for 1 second before checking
+    detection_thread = None
+    gui()
